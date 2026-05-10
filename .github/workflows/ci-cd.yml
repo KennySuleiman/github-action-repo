@@ -1,0 +1,52 @@
+name: CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+          | docker login --username AWS --password-stdin <repo-uri>
+
+      - name: Set environment tag
+        id: vars
+        run: |
+          if [[ "${{ github.base_ref }}" == "dev" ]]; then
+            echo "TAG=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.base_ref }}" == "staging" ]]; then
+            echo "TAG=staging" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=prod" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        run: docker build -t my-app:${{ steps.vars.outputs.TAG }} .
+
+      - name: Tag image for ECR
+        run: |
+          docker tag my-app:${{ steps.vars.outputs.TAG }} \
+          <repo-uri>:${{ steps.vars.outputs.TAG }}
+
+      - name: Push to ECR
+        run: |
+          docker push <repo-uri>:${{ steps.vars.outputs.TAG }}
